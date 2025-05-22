@@ -1,0 +1,15 @@
+﻿<div>
+    <h1>Albums</h1>
+    <ul>
+        <li *ngFor="let album of albums" (click)="fetchDesigns(album.AlbumID)">
+            {{ album.Caption }}
+        </li>
+    </ul>
+
+    <h2 *ngIf="selectedAlbum">Designs in {{ selectedAlbum }}</h2>
+    <ul>
+        <li *ngFor="let design of designs">
+            <strong>{{ design.Caption }}</strong>: {{ design.Description }}
+        </li>
+    </ul>
+</div>

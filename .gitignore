@@ -1,0 +1,155 @@
+# Visual Studio / .NET Build Artifacts
+bin/
+obj/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.csproj.user
+*.vs/
+*.pdb
+*.cache
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.ipch
+*.tlog
+*.log
+*.idb
+*.exp
+*.lib
+*.ncb
+*.aps
+*.bak
+*.tmp
+*.msi
+*.msm
+*.msp
+*.resources
+*.res
+*.dll
+*.exe
+*.config
+*.manifest
+*.lastbuildstate
+*.builds
+*.sdf
+*.opensdf
+*.VisualState.xml
+*.tss
+
+# .NET Core / ASP.NET Core
+[Dd]ebug/
+[Rr]elease/
+[Pp]ublish/
+*.pubxml
+*.pubxml.user
+*.nupkg
+*.snupkg
+*.dotnet/
+.dotnet/
+.project.assets.json
+project.lock.json
+artifacts/
+*.csproj.nuget.cache
+*.csproj.nuget.g.props
+*.csproj.nuget.g.targets
+
+# NuGet Packages
+packages/
+*.nupkg
+!packages/**/*.csproj
+
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# Test and Coverage Files
+[Tt]est[Rr]esult*/
+[Cc]overage*/
+*.trx
+*.xml
+*.coverage
+*.coveragexml
+
+# Temporary Files
+*~
+*.swp
+*.swo
+*.tmp
+*.temp
+*.bak
+*.backup
+Thumbs.db
+.DS_Store
+
+# Environment and Secrets
+appsettings.json
+appsettings.*.json
+secrets.json
+*.env
+.env.*
+*.pfx
+*.cer
+*.key
+*.pem
+
+# Logs
+*.log
+logs/
+log/
+
+# Dependency Directories
+node_modules/
+bower_components/
+
+# Miscellaneous
+*.pidb
+*.scc
+*.vssscc
+*.vspscc
+*.suo
+*.cache
+*.ide
+*.pid
+*.pidb
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.publishsettings
+*.azurePubxml
+*.azurePipelines.yml
+*.azure-pipelines.yml
+*.github/
+
+# Documentation and Miscellaneous
+[Dd]ocs/[Oo]utput/
+*.mdproj
+*.mfr
+*.mrt
+*.rdl.data
+*.bim_*.settings
+*.rptproj.backup
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+TemporaryItems
+.apdisk
