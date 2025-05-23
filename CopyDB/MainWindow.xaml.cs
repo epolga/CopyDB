@@ -10,6 +10,8 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Media3D;
 using MySqlX.XDevAPI;
+using System.ComponentModel.DataAnnotations;
+using System.Reflection.PortableExecutable;
 
 namespace CopyDB
 {
@@ -71,7 +73,12 @@ namespace CopyDB
             //Copy_Albums();
         }
 
-      
+        private async void Copy_Users_Click(object sender, RoutedEventArgs e)
+        {
+            //await DeleteUserItems();
+            await Copy_Users_To_AWSAsync();
+        }
+
         private async Task RemoveNPageForAlbums(AmazonDynamoDBClient client)
         {
             string tableName = "CrossStitchItems";
@@ -218,9 +225,106 @@ namespace CopyDB
             return count;
         }
 
-       
+        public static int Count_Users()
+        {
+            int count = 0;
+            string query = "SELECT COUNT(*) FROM AspNetUsers";
 
-        private async Task Copy_Albums_To_AWS()
+            try
+            {
+                using (SqlConnection connection = new SqlConnection(connectionMsSqlString))
+                {
+                    connection.Open();
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    {
+                        // ExecuteScalar returns the first column of the first row
+                        count = Convert.ToInt32(command.ExecuteScalar());
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error counting Designs: " + ex.Message);
+            }
+
+            return count;
+        }
+
+        private async Task Copy_Users_To_AWSAsync()
+        {
+            // SQL query to select all records from the MSSQL Albums table.
+            string selectQuery = "SELECT * FROM AspNetUsers ORDER BY DateCreated";
+            int nUsers = Count_Users();
+            int nUser = 0;
+            var table = Table.LoadTable(dynamoClient, tableName);
+            try
+            {
+                // Open connection to MSSQL database
+                using (SqlConnection sqlConn = new SqlConnection(connectionMsSqlString))
+                {
+                    sqlConn.Open();
+                    using (SqlCommand sqlCmd = new SqlCommand(selectQuery, sqlConn))
+                    using (SqlDataReader reader = sqlCmd.ExecuteReader())
+                    {
+                        double usersPercent = 0;
+                        while (await reader.ReadAsync())
+                        { 
+                            nUser++;
+                            usersPercent = nUser / (nUsers / 100.0);
+                            int percent = (int)(usersPercent + 0.5);
+                            string NPage = nUser.ToString("0000000");
+                            string ID = reader.GetString("ID");
+                            string FName = reader.IsDBNull(reader.GetOrdinal("FName")) ? "SomeName" : reader.GetString("FName");
+                            string UserName = reader.IsDBNull(reader.GetOrdinal("Email")) ? "SomeEmail" : reader.GetString("Email");
+                            string Email = reader.IsDBNull(reader.GetOrdinal("Email")) ? "SomeEmail" : reader.GetString("Email");
+                            DateTime DateCreated = reader.IsDBNull(reader.GetOrdinal("DateCreated")) ? DateTime.MinValue : reader.GetDateTime("DateCreated");
+                            DateTime LastLoginDate = reader.IsDBNull(reader.GetOrdinal("LastLoginDate")) ? DateTime.MinValue : reader.GetDateTime("LastLoginDate");                                                
+                            DateTime? PayingDate = reader.IsDBNull(reader.GetOrdinal("PayingDate")) ? null : reader.GetDateTime("PayingDate");
+                            decimal PayedAmount = reader.IsDBNull(reader.GetOrdinal("PayedAmount")) ? 0 : reader.GetDecimal("PayedAmount");
+                            bool IsRecurring = reader.IsDBNull(reader.GetOrdinal("IsRecurring")) ? false : reader.GetBoolean("IsRecurring");
+                            string PayerID = reader.IsDBNull(reader.GetOrdinal("PayerID")) ? "" : reader.GetString("PayerID");
+                            bool Deleted = reader.IsDBNull(reader.GetOrdinal("Deleted")) ? false : reader.GetBoolean("Deleted");
+                            int OldEmailID = reader.IsDBNull(reader.GetOrdinal("OldEmailID")) ? 0 : reader.GetInt32("OldEmailID");
+                            string IP = reader.IsDBNull(reader.GetOrdinal("IP")) ? "" : reader.GetString("IP");
+                            DateTime? FirstPayingDate = reader.IsDBNull(reader.GetOrdinal("FirstPayingDate")) ? null : reader.GetDateTime("FirstPayingDate");
+                            string OpenPwd = reader.IsDBNull(reader.GetOrdinal("OpenPwd")) ? "" : reader.GetString("OpenPwd");
+
+                            if(!string.IsNullOrEmpty(PayerID))
+                            {
+                            }
+                            var item = new Document
+                            {
+                                ["ID"] = $"USR#{ID}",
+                                ["NPage"] = NPage,
+                                ["EntityType"] = "USER",
+                                ["FName"] = FName,
+                                ["UserName"] = UserName,
+                                ["DateCreated"] = DateCreated,
+                                ["LastLoginDate"] = LastLoginDate,
+                                ["PayingDate"] = PayingDate,
+                                ["PayedAmount"] = PayedAmount,
+                                ["IsRecurring"] = IsRecurring,
+                                ["PayerID"] = PayerID,
+                                ["Deleted"] = Deleted,
+                                ["OldEmailID"] = OldEmailID,
+                                ["IP"] = IP,
+                                ["FirstPayingDate"] = FirstPayingDate,
+                                ["OpenPwd"] = OpenPwd
+                            };
+                            await table.PutItemAsync(item);
+                            Console.WriteLine($"Uploaded user {nUser}: USR#{ID}");
+
+                        }
+
+                    }
+                }
+            }
+            catch (Exception ex)
+            { 
+            }
+        }
+
+          private async Task Copy_Albums_To_AWS()
         {
             // SQL query to select all records from the MSSQL Albums table.
             string selectQuery = "SELECT AlbumID, Caption FROM Albums ORDER BY AlbumID";
@@ -409,6 +513,94 @@ namespace CopyDB
             {
                 Console.WriteLine("Error: " + ex.Message);
             }
+        }
+
+        public static async Task DeleteUserItems()
+        {
+            int totalDeleted = 0;
+            Dictionary<string, AttributeValue> lastEvaluatedKey = null;
+
+            do
+            {
+                // Scan table to get items with EntityType = "USER"
+                var scanRequest = new ScanRequest
+                {
+                    TableName = tableName,
+                    ProjectionExpression = "#id, #nPage", // Use ProjectionExpression instead of AttributesToGet
+                    ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#id", "ID" }, // Alias for reserved keyword ID
+                    { "#nPage", "NPage" } // Alias for NPage
+                },
+                    FilterExpression = "EntityType = :entityType",
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":entityType", new AttributeValue { S = "USER" } }
+                },
+                    ExclusiveStartKey = lastEvaluatedKey,
+                    Limit = 100 // Adjust for performance (100 items per scan)
+                };
+
+                var scanResponse = await dynamoClient.ScanAsync(scanRequest);
+                var items = scanResponse.Items;
+                lastEvaluatedKey = scanResponse.LastEvaluatedKey.Count > 0 ? scanResponse.LastEvaluatedKey : null;
+
+                if (items.Count == 0)
+                {
+                    Console.WriteLine("No USER items found in scan batch.");
+                    continue;
+                }
+
+                // Process items in batches of 25 (DynamoDB BatchWriteItem limit)
+                var batches = items
+                    .Select((item, index) => new { Item = item, Index = index })
+                    .GroupBy(x => x.Index / 25)
+                    .Select(g => g.Select(x => x.Item).ToList());
+
+                foreach (var batch in batches)
+                {
+                    var deleteRequests = batch.Select(item => new WriteRequest
+                    {
+                        DeleteRequest = new DeleteRequest
+                        {
+                            Key = new Dictionary<string, AttributeValue>
+                        {
+                            { "ID", item["ID"] },
+                            { "NPage", item["NPage"] }
+                        }
+                        }
+                    }).ToList();
+
+                    var batchWriteRequest = new BatchWriteItemRequest
+                    {
+                        RequestItems = new Dictionary<string, List<WriteRequest>>
+                    {
+                        { tableName, deleteRequests }
+                    }
+                    };
+
+                    try
+                    {
+                        await dynamoClient.BatchWriteItemAsync(batchWriteRequest);
+                        totalDeleted += deleteRequests.Count;
+                        Console.WriteLine($"Deleted batch of {deleteRequests.Count} USER items. Total deleted: {totalDeleted}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error deleting batch: {ex.Message}");
+                        // Log specific keys for debugging
+                        foreach (var req in deleteRequests)
+                        {
+                            var id = req.DeleteRequest.Key["ID"].S;
+                            var nPage = req.DeleteRequest.Key["NPage"].S;
+                            Console.WriteLine($"Failed item: ID={id}, NPage={nPage}");
+                        }
+                    }
+                }
+
+            } while (lastEvaluatedKey != null);
+
+            Console.WriteLine($"Total USER items deleted: {totalDeleted}");
         }
 
         private async Task Copy_Designs_To_AWSAsync()

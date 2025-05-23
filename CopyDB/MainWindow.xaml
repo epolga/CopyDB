@@ -7,6 +7,9 @@
         mc:Ignorable="d"
         Title="MainWindow" Height="450" Width="800">
     <Grid>
-        <Button Width="100px" Height="30px" Content="Copy" Click="Copy_Click"></Button>
+        <StackPanel Margin="266,197,247,140"  Orientation="Horizontal">
+            <Button Width="100px" Height="30px" Content="Copy" Click="Copy_Click" Margin="5px"></Button>
+            <Button Width="100px" Height="30px" Content="Copy Users" Click="Copy_Users_Click" Margin="5px"></Button>
+        </StackPanel>
     </Grid>
 </Window>
