@@ -75,8 +75,11 @@ namespace CopyDB
 
         private async void Copy_Users_Click(object sender, RoutedEventArgs e)
         {
-            //await DeleteUserItems();
-            await Copy_Users_To_AWSAsync();
+            await TrimIds();
+            /*
+            await DeleteUserItems();
+            //await DeleteDeletedUserItems();
+            await Copy_Users_To_AWSAsync();*/
         }
 
         private async Task RemoveNPageForAlbums(AmazonDynamoDBClient client)
@@ -228,7 +231,7 @@ namespace CopyDB
         public static int Count_Users()
         {
             int count = 0;
-            string query = "SELECT COUNT(*) FROM AspNetUsers";
+            string query = "SELECT COUNT(*) FROM AspNetUsers WHERE Deleted = 0 AND PayerID IS NOT NULL";
 
             try
             {
@@ -250,10 +253,200 @@ namespace CopyDB
             return count;
         }
 
+        private async Task SetUsernames()
+        {
+            var client = new AmazonDynamoDBClient(); // Assumes default credentials and region
+            string tableName = "CrossStitchItems";
+            string prefix = "USR#";
+
+            // Scan for items where ID begins with "USR#"
+            var scanRequest = new ScanRequest
+            {
+                TableName = tableName,
+                FilterExpression = "begins_with(#id, :prefix)",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#id", "ID" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":prefix", new AttributeValue { S = prefix } }
+                }
+            };
+
+            List<Dictionary<string, AttributeValue>> items = new List<Dictionary<string, AttributeValue>>();
+            ScanResponse scanResponse;
+
+            do
+            {
+                scanResponse = await client.ScanAsync(scanRequest);
+                items.AddRange(scanResponse.Items);
+                scanRequest.ExclusiveStartKey = scanResponse.LastEvaluatedKey;
+            } while (scanResponse.LastEvaluatedKey != null && scanResponse.LastEvaluatedKey.Count > 0);
+
+            int i = 0;
+            int totalItems = items.Count;
+            // Process each item
+            foreach (var item in items)
+            {
+                i++;
+                int percent = (int)((i / (totalItems / 100.0)) + 0.5);
+                if (!item.ContainsKey("ID") || !item.ContainsKey("NPage"))
+                {
+                    Console.WriteLine("Item missing required keys; skipping.");
+                    continue;
+                }
+
+                string id = item["ID"].S;
+                string nPage = item["NPage"].S;
+                string suffix = id.Substring(prefix.Length); // Extract the rest after "USR#"
+
+                // Define the composite key
+                var key = new Dictionary<string, AttributeValue>
+                {
+                    { "ID", new AttributeValue { S = id } },
+                    { "NPage", new AttributeValue { S = nPage } }
+                };
+
+                // Update the item with Email and UserName
+                var updateRequest = new UpdateItemRequest
+                {
+                    TableName = tableName,
+                    Key = key,
+                    UpdateExpression = "SET Email = :email, UserName = :username",
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                    {
+                        { ":email", new AttributeValue { S = suffix } },
+                        { ":username", new AttributeValue { S = suffix } }
+                    }
+                };
+
+                try
+                {
+                    await client.UpdateItemAsync(updateRequest);
+                    Console.WriteLine($"Updated item with ID: {id}, NPage: {nPage}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error updating item {id}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine("Processing complete.");
+
+
+        }
+
+        private async Task TrimIds()
+        {
+            var client = new AmazonDynamoDBClient(); // Assumes default credentials and region
+            string tableName = "CrossStitchItems";
+            string prefix = "USR#";
+
+            // Scan for items where ID begins with "USR#"
+            var scanRequest = new ScanRequest
+            {
+                TableName = tableName,
+                FilterExpression = "begins_with(#id, :prefix)",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#id", "ID" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":prefix", new AttributeValue { S = prefix } }
+                }
+            };
+
+            List<Dictionary<string, AttributeValue>> items = new List<Dictionary<string, AttributeValue>>();
+            ScanResponse scanResponse;
+
+            do
+            {
+                scanResponse = await client.ScanAsync(scanRequest);
+                items.AddRange(scanResponse.Items);
+                scanRequest.ExclusiveStartKey = scanResponse.LastEvaluatedKey;
+            } while (scanResponse.LastEvaluatedKey != null && scanResponse.LastEvaluatedKey.Count > 0);
+
+            int i = 0;
+            int totalItems = items.Count;
+            // Process each item
+            foreach (var originalItem in items)
+            {
+                i++;
+                int percent = (int)((i / (totalItems / 100.0)) + 0.5);
+                if (!originalItem.ContainsKey("ID") || !originalItem.ContainsKey("NPage"))
+                {
+                    Console.WriteLine("Item missing required keys; skipping.");
+                    continue;
+                }
+
+                string oldId = originalItem["ID"].S;
+                string nPage = originalItem["NPage"].S;
+                string newId = oldId.Trim(); // Trim the "USR#" prefix
+                if(newId == oldId)
+                {
+                    continue;
+                }
+                // Create a new item with the trimmed ID
+                var newItem = new Dictionary<string, AttributeValue>(originalItem);
+                newItem["ID"] = new AttributeValue { S = newId };
+
+                // Put the new item
+                var putRequest = new PutItemRequest
+                {
+                    TableName = tableName,
+                    Item = newItem
+                };
+
+                try
+                {
+                    await client.PutItemAsync(putRequest);
+                    Console.WriteLine($"Inserted new item with ID: {newId}, NPage: {nPage}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error inserting new item for original ID {oldId}: {ex.Message}");
+                    continue; // Skip deletion if insertion fails
+                }
+
+                if (oldId != newId)
+                {
+                    // Delete the old item
+                    var deleteKey = new Dictionary<string, AttributeValue>
+                    {
+                        { "ID", new AttributeValue { S = oldId } },
+                        { "NPage", new AttributeValue { S = nPage } }
+                    };
+                    var deleteRequest = new DeleteItemRequest
+                    {
+                        TableName = tableName,
+                        Key = deleteKey
+                    };
+
+                    try
+                    {
+                        await client.DeleteItemAsync(deleteRequest);
+                        Console.WriteLine($"Deleted old item with ID: {oldId}, NPage: {nPage}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error deleting old item {oldId}: {ex.Message}");
+                    }
+                }
+                else
+                {
+
+                }
+            }
+
+            Console.WriteLine("Processing complete.");
+
+        }
         private async Task Copy_Users_To_AWSAsync()
         {
             // SQL query to select all records from the MSSQL Albums table.
-            string selectQuery = "SELECT * FROM AspNetUsers ORDER BY DateCreated";
+            string selectQuery = "SELECT * FROM AspNetUsers WHERE Deleted = 0 AND PayerID IS NOT NULL ORDER BY DateCreated";
             int nUsers = Count_Users();
             int nUser = 0;
             var table = Table.LoadTable(dynamoClient, tableName);
@@ -294,7 +487,7 @@ namespace CopyDB
                             }
                             var item = new Document
                             {
-                                ["ID"] = $"USR#{ID}",
+                                ["ID"] = $"USR#{Email}",
                                 ["NPage"] = NPage,
                                 ["EntityType"] = "USER",
                                 ["FName"] = FName,
@@ -513,6 +706,94 @@ namespace CopyDB
             {
                 Console.WriteLine("Error: " + ex.Message);
             }
+        }
+
+        public static async Task DeleteDeletedUserItems()
+        {
+            int totalDeleted = 0;
+            Dictionary<string, AttributeValue> lastEvaluatedKey = null;
+
+            do
+            {
+                // Scan table to get items with EntityType = "USER"
+                var scanRequest = new ScanRequest
+                {
+                    TableName = tableName,
+                    ProjectionExpression = "#id, #nPage", // Use ProjectionExpression instead of AttributesToGet
+                    ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#id", "ID" }, // Alias for reserved keyword ID
+                    { "#nPage", "NPage" } // Alias for NPage
+                },
+                    FilterExpression = "EntityType = :entityType",
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":entityType", new AttributeValue { S = "USER" } } 
+                },
+                    ExclusiveStartKey = lastEvaluatedKey,
+                    Limit = 100 // Adjust for performance (100 items per scan)
+                };
+
+                var scanResponse = await dynamoClient.ScanAsync(scanRequest);
+                var items = scanResponse.Items;
+                lastEvaluatedKey = scanResponse.LastEvaluatedKey.Count > 0 ? scanResponse.LastEvaluatedKey : null;
+
+                if (items.Count == 0)
+                {
+                    Console.WriteLine("No USER items found in scan batch.");
+                    continue;
+                }
+
+                // Process items in batches of 25 (DynamoDB BatchWriteItem limit)
+                var batches = items
+                    .Select((item, index) => new { Item = item, Index = index })
+                    .GroupBy(x => x.Index / 25)
+                    .Select(g => g.Select(x => x.Item).ToList());
+
+                foreach (var batch in batches)
+                {
+                    var deleteRequests = batch.Select(item => new WriteRequest
+                    {
+                        DeleteRequest = new DeleteRequest
+                        {
+                            Key = new Dictionary<string, AttributeValue>
+                        {
+                            { "ID", item["ID"] },
+                            { "NPage", item["NPage"] }
+                        }
+                        }
+                    }).ToList();
+
+                    var batchWriteRequest = new BatchWriteItemRequest
+                    {
+                        RequestItems = new Dictionary<string, List<WriteRequest>>
+                    {
+                        { tableName, deleteRequests }
+                    }
+                    };
+
+                    try
+                    {
+                        await dynamoClient.BatchWriteItemAsync(batchWriteRequest);
+                        totalDeleted += deleteRequests.Count;
+                        Console.WriteLine($"Deleted batch of {deleteRequests.Count} USER items. Total deleted: {totalDeleted}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error deleting batch: {ex.Message}");
+                        // Log specific keys for debugging
+                        foreach (var req in deleteRequests)
+                        {
+                            var id = req.DeleteRequest.Key["ID"].S;
+                            var nPage = req.DeleteRequest.Key["NPage"].S;
+                            Console.WriteLine($"Failed item: ID={id}, NPage={nPage}");
+                        }
+                    }
+                }
+
+            } while (lastEvaluatedKey != null);
+
+            Console.WriteLine($"Total USER items deleted: {totalDeleted}");
         }
 
         public static async Task DeleteUserItems()
