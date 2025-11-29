@@ -6,6 +6,8 @@ using MySql.Data.MySqlClient;
 using System;
 using System.Data;
 using System.Data.SqlClient;
+using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Media3D;
@@ -18,8 +20,8 @@ namespace CopyDB
     public class someClass
     {
 
-        public virtual string  NameOfClass { get; set; } = "someClass";
-        public string NameOfClassF ()
+        public virtual string NameOfClass { get; set; } = "someClass";
+        public string NameOfClassF()
         { return "someClassF"; }
     }
     public class someClass2 : someClass
@@ -33,8 +35,8 @@ namespace CopyDB
     /// </summary>
     public partial class MainWindow : Window
     {
-    
-         
+
+
         static string connectionMySqlString = "server=cross-stitch-db.cmnauage0ofk.us-east-1.rds.amazonaws.com;" +
                                  "port=3306;" +
                                  "user id=admin;" +
@@ -49,14 +51,14 @@ namespace CopyDB
 
         // DynamoDB settings
         private static readonly string tableName = "CrossStitchItems";
-        private static readonly AmazonDynamoDBClient dynamoClient = 
+        private static readonly AmazonDynamoDBClient dynamoClient =
             new AmazonDynamoDBClient(Amazon.RegionEndpoint.USEast1); // Assumes AWS credentials configured
         public MainWindow()
         {
             int _value = 4;
 
             //int x = (int)Interlocked.Read(location: _value);
-             
+
             InitializeComponent();
         }
         private async void Copy_Click(object sender, RoutedEventArgs e)
@@ -65,10 +67,13 @@ namespace CopyDB
             string str2 = 5.ToString("#####");
             // DeleteAll_Designs();
             await DeleteAllItems();
-           // await RemoveNPageForAlbums(dynamoClient);
+            // await RemoveNPageForAlbums(dynamoClient);
 
             await Copy_Designs_To_AWSAsync();
             await Copy_Albums_To_AWS();
+            await Copy_Designs_To_OrderDbAsync();
+            //await ExportDesignsWithMismatchedPagesAsync(@"D:\ann\Git\CopyDB\MismatchedDesigns1.csv");
+            //await SyncDesignPagesFromNewAsync();
             //Copy_Designs();
             //Copy_Albums();
         }
@@ -180,7 +185,7 @@ namespace CopyDB
 
         public static int DeleteAll_Designs()
         {
-            
+
             int rowsAffected = 0;
             string query = "DELETE FROM designs";
 
@@ -384,7 +389,7 @@ namespace CopyDB
                 string oldId = originalItem["ID"].S;
                 string nPage = originalItem["NPage"].S;
                 string newId = oldId.Trim(); // Trim the "USR#" prefix
-                if(newId == oldId)
+                if (newId == oldId)
                 {
                     continue;
                 }
@@ -461,7 +466,7 @@ namespace CopyDB
                     {
                         double usersPercent = 0;
                         while (await reader.ReadAsync())
-                        { 
+                        {
                             nUser++;
                             usersPercent = nUser / (nUsers / 100.0);
                             int percent = (int)(usersPercent + 0.5);
@@ -471,7 +476,7 @@ namespace CopyDB
                             string UserName = reader.IsDBNull(reader.GetOrdinal("Email")) ? "SomeEmail" : reader.GetString("Email");
                             string Email = reader.IsDBNull(reader.GetOrdinal("Email")) ? "SomeEmail" : reader.GetString("Email");
                             DateTime DateCreated = reader.IsDBNull(reader.GetOrdinal("DateCreated")) ? DateTime.MinValue : reader.GetDateTime("DateCreated");
-                            DateTime LastLoginDate = reader.IsDBNull(reader.GetOrdinal("LastLoginDate")) ? DateTime.MinValue : reader.GetDateTime("LastLoginDate");                                                
+                            DateTime LastLoginDate = reader.IsDBNull(reader.GetOrdinal("LastLoginDate")) ? DateTime.MinValue : reader.GetDateTime("LastLoginDate");
                             DateTime? PayingDate = reader.IsDBNull(reader.GetOrdinal("PayingDate")) ? null : reader.GetDateTime("PayingDate");
                             decimal PayedAmount = reader.IsDBNull(reader.GetOrdinal("PayedAmount")) ? 0 : reader.GetDecimal("PayedAmount");
                             bool IsRecurring = reader.IsDBNull(reader.GetOrdinal("IsRecurring")) ? false : reader.GetBoolean("IsRecurring");
@@ -482,7 +487,7 @@ namespace CopyDB
                             DateTime? FirstPayingDate = reader.IsDBNull(reader.GetOrdinal("FirstPayingDate")) ? null : reader.GetDateTime("FirstPayingDate");
                             string OpenPwd = reader.IsDBNull(reader.GetOrdinal("OpenPwd")) ? "" : reader.GetString("OpenPwd");
 
-                            if(!string.IsNullOrEmpty(PayerID))
+                            if (!string.IsNullOrEmpty(PayerID))
                             {
                             }
                             var item = new Document
@@ -513,11 +518,11 @@ namespace CopyDB
                 }
             }
             catch (Exception ex)
-            { 
+            {
             }
         }
 
-          private async Task Copy_Albums_To_AWS()
+        private async Task Copy_Albums_To_AWS()
         {
             // SQL query to select all records from the MSSQL Albums table.
             string selectQuery = "SELECT AlbumID, Caption FROM Albums ORDER BY AlbumID";
@@ -534,10 +539,10 @@ namespace CopyDB
                         int albumCount = 0;
                         while (await reader.ReadAsync())
                         {
-                           /* if(albumCount > 3)
-                            {
-                                break;
-                            }*/
+                            /* if(albumCount > 3)
+                             {
+                                 break;
+                             }*/
                             try
                             {
                                 int albumId = reader.GetInt32("AlbumID");
@@ -549,7 +554,7 @@ namespace CopyDB
                                     ["EntityType"] = "ALBUM",
                                     ["AlbumID"] = albumId,
                                     ["Caption"] = caption,
-                                   // ["NPage"] = albumCount
+                                    // ["NPage"] = albumCount
                                 };
                                 /*
                                 var item = new Dictionary<string, AttributeValue>
@@ -572,7 +577,7 @@ namespace CopyDB
                         }
 
                         Console.WriteLine($"Total albums uploaded: {albumCount}");
-                    
+
                     }
                 }
             }
@@ -728,7 +733,7 @@ namespace CopyDB
                     FilterExpression = "EntityType = :entityType",
                     ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
-                    { ":entityType", new AttributeValue { S = "USER" } } 
+                    { ":entityType", new AttributeValue { S = "USER" } }
                 },
                     ExclusiveStartKey = lastEvaluatedKey,
                     Limit = 100 // Adjust for performance (100 items per scan)
@@ -884,6 +889,344 @@ namespace CopyDB
             Console.WriteLine($"Total USER items deleted: {totalDeleted}");
         }
 
+        private async Task ExportDesignsWithMismatchedPagesAsync(string outputPath)
+        {
+            try
+            {
+                var table = Table.LoadTable(dynamoClient, tableName);
+                var filter = new ScanFilter();
+                filter.AddCondition("EntityType", ScanOperator.Equal, "DESIGN");
+                var search = table.Scan(filter);
+
+                var sb = new StringBuilder();
+                sb.AppendLine("DesignID,AlbumID,NPage,NewNPage,Caption");
+
+                int mismatched = 0;
+
+                do
+                {
+                    var batch = await search.GetNextSetAsync();
+                    foreach (var doc in batch)
+                    {
+                        var designId = TryGetInt(doc, "DesignID");
+                        var albumId = TryGetInt(doc, "AlbumID");
+                        var nPage = TryGetString(doc, "NPage");
+                        var newNPage = TryGetString(doc, "NewNPage");
+
+                        if (string.Equals(nPage, newNPage, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        var caption = TryGetString(doc, "Caption");
+                        sb.AppendLine(string.Join(",",
+                            Csv(designId?.ToString() ?? string.Empty),
+                            Csv(albumId?.ToString() ?? string.Empty),
+                            Csv(nPage),
+                            Csv(newNPage),
+                            Csv(caption)));
+                        mismatched++;
+                    }
+                } while (!search.IsDone);
+
+                File.WriteAllText(outputPath, sb.ToString());
+                Console.WriteLine($"Exported {mismatched} designs with mismatched NPage/NewNPage to {outputPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error exporting mismatched designs: {ex.Message}");
+            }
+
+            static int? TryGetInt(Document doc, string key)
+            {
+                if (!doc.ContainsKey(key))
+                {
+                    return null;
+                }
+
+                var entry = doc[key];
+                if (entry is null)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    return entry.AsInt();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    if (int.TryParse(entry.AsString(), out var value))
+                    {
+                        return value;
+                    }
+                }
+                catch
+                {
+                }
+
+                return null;
+            }
+
+            static string TryGetString(Document doc, string key)
+            {
+                if (!doc.ContainsKey(key))
+                {
+                    return string.Empty;
+                }
+
+                var entry = doc[key];
+                if (entry is null)
+                {
+                    return string.Empty;
+                }
+
+                try
+                {
+                    return entry.AsString();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    return entry.AsInt().ToString();
+                }
+                catch
+                {
+                }
+
+                return string.Empty;
+            }
+
+            static string Csv(string value)
+            {
+                value ??= string.Empty;
+                var needsQuotes = value.Contains(",") || value.Contains("\"") || value.Contains("\n") || value.Contains("\r");
+                if (value.Contains("\""))
+                {
+                    value = value.Replace("\"", "\"\"");
+                }
+
+                return needsQuotes ? $"\"{value}\"" : value;
+            }
+        }
+
+        private async Task SyncDesignPagesFromNewAsync()
+        {
+            try
+            {
+                var table = Table.LoadTable(dynamoClient, tableName);
+                var filter = new ScanFilter();
+                filter.AddCondition("EntityType", ScanOperator.Equal, "DESIGN");
+                var search = table.Scan(filter);
+
+                int updated = 0;
+                int missingNew = 0;
+
+                do
+                {
+                    var batch = await search.GetNextSetAsync();
+                    foreach (var doc in batch)
+                    {
+                        var nPage = ReadString(doc, "NPage");
+                        var newNPage = ReadString(doc, "NewNPage");
+
+                        if (string.IsNullOrEmpty(newNPage))
+                        {
+                            missingNew++;
+                            continue;
+                        }
+
+                        if (string.Equals(nPage, newNPage, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        doc["NPage"] = newNPage;
+                        try
+                        {
+                            await table.UpdateItemAsync(doc);
+                            updated++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Failed to update NPage for design {ReadString(doc, "DesignID")}: {ex.Message}");
+                        }
+                    }
+                } while (!search.IsDone);
+
+                Console.WriteLine($"Synced NPage from NewNPage for {updated} designs. Missing NewNPage: {missingNew}.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error syncing NPage from NewNPage: {ex.Message}");
+            }
+
+            static string ReadString(Document doc, string key)
+            {
+                if (!doc.ContainsKey(key) || doc[key] is null)
+                {
+                    return string.Empty;
+                }
+
+                var entry = doc[key];
+                try
+                {
+                    return entry.AsString();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    return entry.AsInt().ToString("00000");
+                }
+                catch
+                {
+                }
+
+                return string.Empty;
+            }
+        }
+
+        private async Task Copy_Designs_To_OrderDbAsync()
+        {
+            try
+            {
+                var table = Table.LoadTable(dynamoClient, tableName);
+                var scanFilter = new ScanFilter();
+                scanFilter.AddCondition("EntityType", ScanOperator.Equal, "DESIGN");
+                var search = table.Scan(scanFilter);
+                var designDocs = new List<Document>();
+
+                do
+                {
+                    var batch = await search.GetNextSetAsync();
+                    designDocs.AddRange(batch);
+                } while (!search.IsDone);
+
+                var groupedDesigns = designDocs
+                    .Select(d => new
+                    {
+                        Doc = d,
+                        AlbumId = TryGetInt(d, "AlbumID"),
+                        DesignId = TryGetInt(d, "DesignID"),
+                        NPage = TryGetInt(d, "NPage")
+                    })
+                    .Where(x => x.AlbumId.HasValue && x.DesignId.HasValue)
+                    .GroupBy(x => x.AlbumId!.Value);
+
+                int totalUpdated = 0;
+
+                foreach (var albumGroup in groupedDesigns)
+                {
+                    int newNPage = 1;
+                    foreach (var design in albumGroup
+                        .OrderBy(d => d.NPage ?? int.MaxValue)
+                        .ThenBy(d => d.DesignId.Value))
+                    {
+                        var doc = design.Doc;
+                        doc["NewNPage"] = newNPage.ToString("00000");
+
+                        try
+                        {
+                            await table.UpdateItemAsync(doc);
+                            totalUpdated++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Failed to update design {design.DesignId} (album {albumGroup.Key}) with NewNPage={newNPage}: {ex.Message}");
+                        }
+
+                        newNPage++;
+                    }
+                }
+
+                Console.WriteLine($"Updated {totalUpdated} designs in DynamoDB with NewNPage set sequentially per album.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating designs in DynamoDB with NewNPage: {ex.Message}");
+            }
+
+            static int? TryGetInt(Document doc, string key)
+            {
+                if (!doc.ContainsKey(key))
+                {
+                    return null;
+                }
+
+                var entry = doc[key];
+                if (entry is null)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    return entry.AsInt();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    if (int.TryParse(entry.AsString(), out var value))
+                    {
+                        return value;
+                    }
+                }
+                catch
+                {
+                }
+
+                return null;
+            }
+
+            static string TryGetString(Document doc, string key)
+            {
+                var value = TryGetNullableString(doc, key);
+                return value.ToString() ?? string.Empty;
+            }
+
+            static object TryGetNullableString(Document doc, string key)
+            {
+                if (!doc.ContainsKey(key))
+                {
+                    return DBNull.Value;
+                }
+
+                var entry = doc[key];
+                if (entry is null)
+                {
+                    return DBNull.Value;
+                }
+
+                try
+                {
+                    var str = entry.AsString();
+                    if (string.Equals(str, "NULL", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return DBNull.Value;
+                    }
+
+                    return str;
+                }
+                catch
+                {
+                    return DBNull.Value;
+                }
+            }
+        }
+
         private async Task Copy_Designs_To_AWSAsync()
         {
             string selectQuery = @"
@@ -891,6 +1234,8 @@ namespace CopyDB
                        Notes, Width, Height, NColors, Text, NPage 
                 FROM Designs ORDER BY DesignID";
             Dictionary<int, int> dictAlbumToDesign = new Dictionary<int, int>();
+            var table = Table.LoadTable(dynamoClient, tableName);
+            var existingDesignIds = await GetExistingDesignIds(table);
 
             try
             {
@@ -912,16 +1257,21 @@ namespace CopyDB
                             {
                                 break;
                             }*/
-                           
+
                             int designId = reader.GetInt32("DesignID");
+                            if (existingDesignIds.Contains(designId))
+                            {
+                                continue;
+                            }
+
                             int albumId = reader.GetInt32("AlbumID");
                             if (dictAlbumToDesign.ContainsKey(albumId))
                             {
-                              nPage = dictAlbumToDesign[albumId] + 1; 
-                              /*if(nPage > 3)
-                                {
-                                    break;
-                                }*/
+                                nPage = dictAlbumToDesign[albumId] + 1;
+                                /*if(nPage > 3)
+                                  {
+                                      break;
+                                  }*/
                             }
                             else
                             {
@@ -954,10 +1304,10 @@ namespace CopyDB
                                 ["Width"] = width,
                                 ["Height"] = height,
                                 ["Text"] = text,
-                              //  ["NPage"] = nPage,
+                                //  ["NPage"] = nPage,
                                 ["NGlobalPage"] = nGlobalPage
                             };
-                           
+
                             nGlobalPage++;
                             /*
                             var item = new Dictionary<string, AttributeValue>
@@ -978,7 +1328,6 @@ namespace CopyDB
                                 { "NPage", new AttributeValue { N = reader.IsDBNull(reader.GetOrdinal("NPage")) ? "0" : reader.GetInt32("NPage").ToString() } }
                             };
                             */
-                            var table = Table.LoadTable(dynamoClient, tableName); 
                             /*
                             var request = new PutItemRequest
                             {
@@ -988,6 +1337,7 @@ namespace CopyDB
                             await dynamoClient.PutItemAsync(request);
                             */
                             await table.PutItemAsync(item);
+                            existingDesignIds.Add(designId);
                             designCount++;
                             Console.WriteLine($"Uploaded design {designCount}: DSN#{reader.GetInt32("DesignID")}");
                         }
@@ -998,10 +1348,58 @@ namespace CopyDB
             {
                 Console.WriteLine("Error: " + ex.Message);
             }
+
+            static async Task<HashSet<int>> GetExistingDesignIds(Table table)
+            {
+                var designIds = new HashSet<int>();
+                var scanFilter = new ScanFilter();
+                scanFilter.AddCondition("EntityType", ScanOperator.Equal, "DESIGN");
+                var search = table.Scan(scanFilter);
+
+                do
+                {
+                    var batch = await search.GetNextSetAsync();
+                    foreach (var doc in batch)
+                    {
+                        if (!doc.ContainsKey("DesignID"))
+                        {
+                            continue;
+                        }
+
+                        var entry = doc["DesignID"];
+                        if (entry is null)
+                        {
+                            continue;
+                        }
+
+                        try
+                        {
+                            designIds.Add(entry.AsInt());
+                            continue;
+                        }
+                        catch
+                        {
+                        }
+
+                        try
+                        {
+                            if (int.TryParse(entry.AsString(), out var parsed))
+                            {
+                                designIds.Add(parsed);
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                } while (!search.IsDone);
+
+                return designIds;
+            }
         }
         private void Copy_Designs()
         {
-                       // SQL query to select all records from the MSSQL Designs table.
+            // SQL query to select all records from the MSSQL Designs table.
             string selectQuery = @"
                 SELECT DesignID, AlbumID, Caption, Description, NDownloaded, 
                        Notes, Width, Height, NColors, Text, NPage 
@@ -1090,14 +1488,15 @@ namespace CopyDB
 
         void Reverse(char[] str)
         {
-            if(str == null || str.Length == 0) { return; }
+            if (str == null || str.Length == 0) { return; }
 
             int length = str.Length;
 
             int left = 0; ;
             int right = length - 1;
             char tmp = '\0';
-            while (left < right) { 
+            while (left < right)
+            {
                 tmp = str[left];
                 str[left] = str[right];
                 str[right] = tmp;
@@ -1110,10 +1509,10 @@ namespace CopyDB
         {
             double dblNum = (double)num;
             uint limit = (uint)Math.Sqrt(dblNum);
-            if(limit * limit == num) { return false; }
-            for(int number  = 2; number < limit; number++)
+            if (limit * limit == num) { return false; }
+            for (int number = 2; number < limit; number++)
             {
-                if (num % number == 0) 
+                if (num % number == 0)
                 {
                     return false;
                 }
@@ -1124,8 +1523,8 @@ namespace CopyDB
         public int[] TwoSum(int[] nums, int target)
         {
             Dictionary<int, int> numMap = new Dictionary<int, int>();
-            for(int i = 0; i < nums.Length; i++)
-            {   
+            for (int i = 0; i < nums.Length; i++)
+            {
                 int complement = target - nums[i];
                 if (numMap.ContainsKey(complement))
                 {
@@ -1137,10 +1536,10 @@ namespace CopyDB
             throw new ArgumentException("No two numbers add up to the target.");
         }
 
-        public async Task<int> Sum(int[] nums) 
-        { 
+        public async Task<int> Sum(int[] nums)
+        {
             int sum = 0;
-            if(nums == null)
+            if (nums == null)
             {
                 throw new ArgumentNullException("nums", "nums is null");
             }
@@ -1173,7 +1572,7 @@ namespace CopyDB
         }
 
         public int Sum(int[] ints, int start, int end)
-        {            
+        {
             int sum = 0;
             if (start < 0 || end > ints.Length)
             {
@@ -1203,6 +1602,6 @@ namespace CopyDB
         }
     }
 
- 
+
 
 }
